@@ -1,0 +1,11 @@
+LICENSE
+README.md
+pyproject.toml
+setup.cfg
+src/snowcast/__init__.py
+src/snowcast/data_wrangling/__init__.py
+src/snowcast_Malachyiii.egg-info/PKG-INFO
+src/snowcast_Malachyiii.egg-info/SOURCES.txt
+src/snowcast_Malachyiii.egg-info/dependency_links.txt
+src/snowcast_Malachyiii.egg-info/requires.txt
+src/snowcast_Malachyiii.egg-info/top_level.txt

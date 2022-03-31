@@ -1,0 +1,26 @@
+pandas
+numpy==1.21.0
+Rtree
+geopandas
+tornado>=6.0
+dask[complete]
+pystac-client
+planetary_computer
+rasterio
+xarray-spatial
+matplotlib
+xarray
+datashader
+geotiff
+geopy
+shapely
+imagecodecs
+sklearn
+requests
+earthengine-api
+httplib2==0.15.0
+rioxarray
+importlib
+
+[:platform_system != "Windows"]
+GDAL
