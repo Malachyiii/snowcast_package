@@ -707,9 +707,6 @@ def stitch_aso(reference, df):
 
 
 
-fp = r'GeoTiff_Image.tif'
-
-
 ############# testing###########
 
 def testing():
