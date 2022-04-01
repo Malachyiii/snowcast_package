@@ -14,15 +14,20 @@ import rioxarray
 import planetary_computer
 import xrspatial
 import numpy
-
 import urllib
+import geopy
+import numpy as np
 from PIL import Image
 from datashader.transfer_functions import shade, stack
 from pystac_client import Client
 from shapely import wkt
 from datetime import datetime, timedelta
-from pandas import to_datetime
+from pandas import to_datetime, date_range, DataFrame
+from geopandas import GeoDataFrame
+from geotiff import GeoTiff
+import geopy.distance as distance
 from numpy import divide
+from shapely.geometry import Polygon
 
 
 if platform.system() == 'Windows':
@@ -36,6 +41,70 @@ else:
         raise TimeoutException
     
     signal.signal(signal.SIGALRM, timeout_handler)
+    
+############## chop_aso to divide ASO up into gridsquares#######################################
+
+def chop_aso(tiff_image_name, groundtruth =  False):
+    df = []
+    
+    geo_tiff = GeoTiff(tiff_image_name)
+
+    zarr_array = geo_tiff.read()
+
+    im_array = np.array(zarr_array)
+    
+    pad_after0 = (20 - (im_array.shape[0] % 20))
+    pad_after1 = (20 - (im_array.shape[1] % 20))
+    im_array = np.pad(im_array, 
+           pad_width = ((0,pad_after0), (0,pad_after1)), 
+           constant_values = -9999)
+    
+    y = 0
+
+    for i in range(0, im_array.shape[0], 20):
+        for j in range(0, im_array.shape[1], 20):
+            
+            d = distance.distance(kilometers=1)
+
+
+            # Going clockwise, from upper-left to lower-left, lower-right...
+            coords = geo_tiff.get_wgs_84_coords(i,j)
+            p1 = geopy.Point((coords[1], coords[0]))
+            p2 = d.destination(point=p1, bearing=180)
+            p3 = d.destination(point=p2, bearing=90)
+            p4 = d.destination(point=p3, bearing=0)
+
+            points = [(p.longitude, p.latitude) for p in [p1,p2,p3,p4]]
+            polygon = Polygon(points)
+
+            area_box = [(p1.longitude, p1.latitude), (p3.longitude, p3.latitude)]
+            array = geo_tiff.read_box(area_box)
+            array[array == -9999] = np.nan
+            try:
+                if groundtruth:
+                    mean = np.nanmean(array)*39.3701 #metric to inches conversion
+                else:
+                    mean = np.nanmean(array)*0 #returns np.nan if emptyslice and 0 otherwise
+                    
+            except Exception as e:
+                print(e)
+                print("Filling in with nan")
+                mean = np.nan
+                
+            if groundtruth:
+                cell_id = tiff_image_name[0:-4]+str(y)
+            else:
+                cell_id = y
+            
+            row= [cell_id, mean, polygon]
+            df.append(row)
+            y+=1
+        
+    df = GeoDataFrame(DataFrame(data = df, columns = ['cell_id', 'SWE', 'geometry']))
+    
+    return df
+    
+    
     
 ##############Pull Modis images###########################################
 
@@ -534,20 +603,130 @@ def pull_Sentinel2b(geometry, date):
         print("Have you logged in to google earth engine?")
         return
     
+############# GRIDMET Weather Data##########################################
+def pull_GRIDMET(geometry, date, num_days_back = 7):
+        
+    try:
+        if not isinstance(date, datetime):
+            date = to_datetime(date)
+    except Exception as e:
+        print(e)
+        print("You did not enter a date for the date variable")
+        return
+    
+    try:
+        if not isinstance(geometry, shapely.geometry.base.BaseGeometry):
+            geometry = wkt.loads(geometry)
+    except Exception as e:
+        print(e)
+        print("You did not enter a geometry for the geometry variable")
+        return
+    
+    daterange = date_range(end = date, periods = num_days_back).tolist()
+    geometries = [geometry for x in range(num_days_back)]
+    
+    df = DataFrame({"geometry":geometries, 
+                    "date":daterange,
+                    "precip":["NULL"]*num_days_back, 
+                    "wind_dir":["NULL"]*num_days_back, 
+                    "temp_min":["NULL"]*num_days_back, 
+                    "temp_max":["NULL"]*num_days_back, 
+                    "wind_vel":["NULL"]*num_days_back})
+    ##Main loop that iterates over areas and stores images in file
+    ##For test image of one AOI see below
+
+
+    for i in range(len(df)):
+    #define area of interest by coordinates
+        aoi = ee.Geometry.Polygon(list(df.geometry[i].exterior.coords))
+          #print(aoi)datetime.strptime(str(row[2]), '%Y%m%d%H%M%S')
+        start_date = df.date[i] - timedelta(days=1)
+        end_date = df.date[i]
+        #print(start_date)
+        #print(end_date)
+
+        try:
+            #print("calculating")
+          
+            lst = ee.ImageCollection('IDAHO_EPSCOR/GRIDMET')\
+                .filterDate(start_date, end_date)\
+                .filterBounds(aoi)\
+                .select('pr', 'th', 'tmmn', 'tmmx', 'vs')
+
+
+            precip = round(lst.mean().sample(aoi, 1000).first().get('pr').getInfo(),2)
+            #print("precip", precip)
+            wind_dir = round(lst.mean().sample(aoi, 1000).first().get('th').getInfo(),2)
+            #print(wind_dir)
+            temp_min = round(lst.mean().sample(aoi, 1000).first().get('tmmn').getInfo(),2)
+            #print(temp_min)
+            temp_max = round(lst.mean().sample(aoi, 1000).first().get('tmmx').getInfo(),2)
+            #print(temp_max)
+            wind_vel = round(lst.mean().sample(aoi, 1000).first().get('vs').getInfo(),2)
+            #print(wind_vel)
+            
+            
+            df.iloc[i,2::] = [precip, wind_dir, temp_min, temp_max, wind_vel]
+        
+        except Exception as e:
+            print(e)
+            df.iloc[i,2::] = ['NULL', 'NULL', 'NULL', 'NULL', 'NULL']
+
+    return df
+        
+#################### Stitch Our dataframe back into an image ############
+def stitch_aso(reference, df):
+    geo_tiff = GeoTiff(reference)
+
+    zarr_array = geo_tiff.read()
+
+    im_array = np.array(zarr_array)
+    
+    pad_after0 = (20 - (im_array.shape[0] % 20))
+    pad_after1 = (20 - (im_array.shape[1] % 20))
+    im_array = np.pad(im_array, 
+           pad_width = ((0,pad_after0), (0,pad_after1)), 
+           constant_values = -9999)
+    
+    im_array[im_array == -9999] = np.nan
+    im_array = im_array*0 +1
+    
+    y = 0
+
+    for i in range(0, im_array.shape[0], 20):
+        for j in range(0, im_array.shape[1], 20):
+            im_array[i:i+20, j:j+20] = im_array[i:i+20, j:j+20] * df.SWE[y]
+            y+=1
+    
+    im = Image.fromarray(im_array)
+    im = im.convert("L")
+    im.save(f"{reference[0:-4]}_prediction.jpeg")
+            
+    
+    return im_array
+
+
+
+fp = r'GeoTiff_Image.tif'
+
 
 ############# testing###########
-#from shapely.geometry import Polygon
 
-#polygon = Polygon([[-119.49, 38.22], [-119.59, 38.22], [-119.59, 38.32], [-119.49, 38.32], [-119.49, 38.22]])
-
-#print(pull_MODIS_list(polygon, '2018-10-10', 'MOD10A1'))
-
-#print(get_copernicus(polygon))
-
-#print(pull_Sentinel1(polygon, '2018-10-10'))
-
-#print(pull_Sentinel2a(polygon, '2018-10-10'))
-
-#print(pull_Sentinel2b(polygon, '2018-10-10'))
-
-#print(pull_MODIS_image(polygon, '2018-12-12', 'MOD10A1', buffer_percent=0.0))
+def testing():
+    
+    polygon = Polygon([[-119.49, 38.22], [-119.59, 38.22], [-119.59, 38.32], [-119.49, 38.32], [-119.49, 38.22]])
+    
+    print("Testing Modis Image Pull")
+    print(pull_MODIS_image(polygon, '2018-12-12', 'MOD10A1', buffer_percent=0.0))
+    print("Testing Modis List Pull")
+    print(pull_MODIS_list(polygon, '2018-10-10', 'MOD10A1'))
+    print("Testing Copernicus Image Pull")
+    print(get_copernicus(polygon))
+    print("Testing Sentinel1 Image Pull")
+    print(pull_Sentinel1(polygon, '2018-10-10'))
+    print("Testing Sentinel2a Image Pull")
+    print(pull_Sentinel2a(polygon, '2018-10-10'))
+    print("Testing Sentinel2b Image Pull")
+    print(pull_Sentinel2b(polygon, '2018-10-10'))
+    print("Testing GRIDMET Weather Pull")
+    print(pull_GRIDMET(polygon, '2018-10-10'))
