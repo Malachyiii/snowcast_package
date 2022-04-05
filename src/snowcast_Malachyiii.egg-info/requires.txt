@@ -20,7 +20,7 @@ requests
 earthengine-api
 httplib2==0.15.0
 rioxarray
-importlib
+seaborn
 
 [:platform_system != "Windows"]
 GDAL

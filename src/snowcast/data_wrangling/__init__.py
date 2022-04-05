@@ -28,6 +28,8 @@ from geotiff import GeoTiff
 import geopy.distance as distance
 from numpy import divide
 from shapely.geometry import Polygon
+import seaborn as sns
+import matplotlib.pylab as plt
 
 
 if platform.system() == 'Windows':
@@ -45,14 +47,38 @@ else:
 ############## chop_aso to divide ASO up into gridsquares#######################################
 
 def chop_aso(tiff_image_name, groundtruth =  False):
+    '''
+    
+
+    Parameters
+    ----------
+    tiff_image_name : str
+        Path to the ASO Geotiff image.
+    groundtruth : Boolean, optional
+        True/False Do you want actual observed values. The default is False.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Chop_aso is a function that takes in a tiff image from the Airborne Snow
+        Observatory in the 50m resolution and cuts it up into a dataframe of 
+        1kmx1km chunks. The output is a df with 3 columns. An arbitrary cell_id
+        number, the geometry of the square as a shapely polygon, and Snow Water
+        Equivalent (SWE). If groundtruth is True the SWE is the mean observed SWE
+        for that cell. Otherwise it is a 0 (to be filled in later)
+        
+    
+    '''
     df = []
     
+    #Reading the image and transforming it into an array
     geo_tiff = GeoTiff(tiff_image_name)
 
     zarr_array = geo_tiff.read()
 
     im_array = np.array(zarr_array)
     
+    #We pad the array so it can be divided into equal chunks
     pad_after0 = (20 - (im_array.shape[0] % 20))
     pad_after1 = (20 - (im_array.shape[1] % 20))
     im_array = np.pad(im_array, 
@@ -60,26 +86,33 @@ def chop_aso(tiff_image_name, groundtruth =  False):
            constant_values = -9999)
     
     y = 0
-
-    for i in range(0, im_array.shape[0], 20):
-        for j in range(0, im_array.shape[1], 20):
+    
+    #Because we know our resolution we can iterate across the array by pixel
+    for i in range(0, im_array.shape[1], 20):
+        for j in range(0, im_array.shape[0], 20):
             
             d = distance.distance(kilometers=1)
 
-
-            # Going clockwise, from upper-left to lower-left, lower-right...
+            #We grab the coordinates of the pixel and the top left corner and 
+            #draw a square
+            #Going clockwise, from upper-left to lower-left, lower-right...
             coords = geo_tiff.get_wgs_84_coords(i,j)
             p1 = geopy.Point((coords[1], coords[0]))
             p2 = d.destination(point=p1, bearing=180)
             p3 = d.destination(point=p2, bearing=90)
             p4 = d.destination(point=p3, bearing=0)
 
+            #Now we create our polygon and clip it out of an image, we fill
+            #in the mask with np.nan
             points = [(p.longitude, p.latitude) for p in [p1,p2,p3,p4]]
             polygon = Polygon(points)
 
             area_box = [(p1.longitude, p1.latitude), (p3.longitude, p3.latitude)]
             array = geo_tiff.read_box(area_box)
             array[array == -9999] = np.nan
+            
+            #Now we fill in the SWE and Cell_id based on whether we are looking
+            #the ground truth or not
             try:
                 if groundtruth:
                     mean = np.nanmean(array)*39.3701 #metric to inches conversion
@@ -109,8 +142,30 @@ def chop_aso(tiff_image_name, groundtruth =  False):
 ##############Pull Modis images###########################################
 
 def pull_MODIS_image(geometry, date, modis, buffer_percent = 0.0):
+    '''
     
     
+    Parameters
+    ----------
+    geometry : shapely.geometry, string
+        Geometry of the area for which we would like to pull an image.
+    date : date, string
+        Date for which we would like to pull imagery. Can be a date or string
+        defining the date.
+    modis : string
+        Name of the Modis satellite for which we would like to pull.
+    buffer_percent : float, optional
+        Float definining how much we would like to buffer around the given
+        geometry by 1 = 100% buffer. The default is 0.0.
+
+    Returns
+    -------
+    np.array
+        Returns a 3D Numpy Array of all three bands scaled to be between 0 and 100.
+
+    '''
+    
+    #Checking for correct input types and converting if otherwise
     try:
         if not isinstance(date, datetime):
             date = to_datetime(date)
@@ -131,11 +186,12 @@ def pull_MODIS_image(geometry, date, modis, buffer_percent = 0.0):
 
 
     #We need a start date and an end date. Just like a regular python slice, 
-    #the end date is not included, so by using a 1 day frame, I am actually limiting
-    #the range to up to the day in question
+    #the end date is not included, so by using a 1 day delta, I am actually limiting
+    #the range to up to the day in question and up to 7 days before
     start_date = date - timedelta(days = 7)
     end_date = date + timedelta(days = 1)
     
+    #Creating our polygon with buffer if requested
     aoi = ee.Geometry.Polygon(list(shapely.affinity.scale(geometry,
                                                         xfact=(1.+ buffer_percent), 
                                                         yfact=(1.+ buffer_percent)).exterior.coords))
@@ -188,12 +244,31 @@ def pull_MODIS_image(geometry, date, modis, buffer_percent = 0.0):
 ##############PULL MODIS LIST#####################################
 
 def pull_MODIS_list(geometry, date, modis, signal_timer = 5):
+    '''
     
+    
+    Parameters
+    ----------
+    geometry : shapely.geometry, string
+        Geometry of the area for which we would like to pull an image.
+    date : date, string
+        Date for which we would like to pull imagery. Can be a date or string
+        defining the date.
+    modis : string
+        Name of the Modis satellite for which we would like to pull.
+    signal_timer : integer, optional
+        Number of seconds to wait before timeout. The default is 5.
+
+    Returns
+    -------
+    row : list
+        This function pulls the data from the specified MODIS snowcover satellite
+        as three columns of data. One for The snow cover, one for the Albedo, and one
+        for the unmodified NDSI measurment, all normalized to between 0 and 1
+        
     '''
-    This function pulls the data from the specified MODIS snowcover satellite
-    as three columns of data. One for The snow cover, one for the Albedo, and one
-    for the unmodified NDSI measurment
-    '''
+    
+    #checking input variable types
     try:
         if not isinstance(date, datetime):
             date = to_datetime(date)
@@ -210,7 +285,7 @@ def pull_MODIS_list(geometry, date, modis, signal_timer = 5):
         print("You did not enter a geometry for the geometry variable")
         return
     
-    
+    #Connecting to the google earth engine image collection
     try:
       Collection = ee.ImageCollection(f'MODIS/006/{modis}') \
                   .select(['NDSI_Snow_Cover', 'Snow_Albedo_Daily_Tile', 'NDSI'])
@@ -222,7 +297,8 @@ def pull_MODIS_list(geometry, date, modis, signal_timer = 5):
       return 
   
 
-
+    #Now we try this until we have a successful connection or timeout. 
+    #Not available on windows
     still_working = True
     while still_working:
       if platform.system() == 'Windows':
@@ -234,8 +310,8 @@ def pull_MODIS_list(geometry, date, modis, signal_timer = 5):
         row = [geometry, date]
     
         #We need a start date and an end date. Just like a regular python slice, 
-        #the end date is not included, so by using a 1 day frame, I am actually limiting
-        #the range to only the day in question
+        #the end date is not included, so by using a 1 day timedelta, I am actually limiting
+        #the range to only the day in question and up to 7 days before
         start_date = date - timedelta(days = 7)
         end_date = date + timedelta(days = 1)
     
@@ -245,15 +321,16 @@ def pull_MODIS_list(geometry, date, modis, signal_timer = 5):
                                     .filter(ee.Filter.notNull(['system:index'])) \
                                     .sort('system:index', False)
     
-        #Because the image collection is limited to a single day, there is only one image
-        #So I just take it
+        #Because it is sorted, we can take the first
         point = DatedCollection.first().unmask(0)
-    
+        
+        #We clip it to the geometry and pull the correct bands
         aoi = ee.Geometry.Polygon(list(geometry.exterior.coords))
     
         bands = point.reduceRegion(reducer = ee.Reducer.mean(),
         geometry= aoi)
     
+        #Normalizes bands to between 0 and 1
         bands = bands.toArray(['NDSI_Snow_Cover', 'Snow_Albedo_Daily_Tile', 'NDSI']).getInfo()
         bands = divide(bands, [100,100,10000] )
     
@@ -276,7 +353,25 @@ def pull_MODIS_list(geometry, date, modis, signal_timer = 5):
 
 ######################### COPERNICUS########################
 def get_copernicus(geometry, signal_timer =5):
+    '''
     
+
+    Parameters
+    ----------
+    geometry : shapely.geometry, string
+        Geometry of the area for which we would like to pull an image.
+    signal_timer : integer, optional
+        Number of seconds to wait before timeout. The default is 5.
+
+    Returns
+    -------
+    np.array
+        Given a geometry, pulls the Copernicus DEM 30m resolution image for that
+        geometry. Returns a 3D Numpy Array of Elevation, slope and aspect.
+
+    '''
+    
+    #Checking for correct image type
     try:
         if not isinstance(geometry, shapely.geometry.base.BaseGeometry):
             geometry = wkt.loads(geometry)
@@ -285,7 +380,9 @@ def get_copernicus(geometry, signal_timer =5):
         print("You did not enter a geometry for the geometry variable")
         return
     
-
+    
+    #Here we establish a connection to planetary computer. We don't move on
+    #until we have connected
     still_working = True
     while still_working:
       try:
@@ -303,7 +400,7 @@ def get_copernicus(geometry, signal_timer =5):
     error_num = 0
     still_working = True
     while still_working:
-      
+      #implementing a timeout timer if system allows
       if platform.system() == 'Windows':
           print("Running on a Windows system, Timeout recovery is not available")
       else:
@@ -314,6 +411,7 @@ def get_copernicus(geometry, signal_timer =5):
     
         # Adapted from https://planetarycomputer.microsoft.com/dataset/cop-dem-glo-90#Example-Notebook :
           if error_num == 0:
+              #searches for an image that contains our bounding box
               area_of_interest = {
               "type": "Polygon",
               "coordinates": [geometry.exterior.coords],
@@ -331,6 +429,8 @@ def get_copernicus(geometry, signal_timer =5):
               max_lat = geometry.bounds[3]
             
           elif error_num > 1:
+              #if we have multiple errors we scale up the request area and
+              #look for an intersection.
               area_of_interest = {
               "type": "Polygon",
               "coordinates": [list(shapely.affinity.scale(geometry,
@@ -343,7 +443,8 @@ def get_copernicus(geometry, signal_timer =5):
                 collections=["cop-dem-glo-30"],
                 intersects= area_of_interest,
                 )
-            
+              #The amount of scaling goes up with the number of timeouts until
+              #an image is found
               min_lon = shapely.affinity.scale(geometry,
                                                           xfact=(1.+ error_num), 
                                                           yfact=(1.+ error_num)).bounds[0]
@@ -359,7 +460,7 @@ def get_copernicus(geometry, signal_timer =5):
     
           
     
-          
+          #Here we bringin the asset
           items = list(search.get_items())
     
           signed_asset = planetary_computer.sign(items[0].assets["data"])
@@ -370,14 +471,15 @@ def get_copernicus(geometry, signal_timer =5):
               .drop("band")
           )
     
-    
+          #We apply a mask to cover up everything but the exact area we want
           mask_lon = (data.x >= min_lon) & (data.x <= max_lon)
           mask_lat = (data.y >= min_lat) & (data.y <= max_lat)
     
     
           cropped_data = data.where(mask_lon & mask_lat, drop=True)
     
-          #hillshade = xrspatial.hillshade(cropped_data)
+          #No we stack the image using datashader to give the elevation on the
+          #red band, slope on the blue and aspect on the green
           img = stack(shade(cropped_data, cmap="red"), 
                       shade(xrspatial.slope(cropped_data), cmap="blue"),
                       shade(xrspatial.aspect(cropped_data), cmap="green"))
@@ -385,7 +487,7 @@ def get_copernicus(geometry, signal_timer =5):
       
         
       except Exception as e:
-        print("Some other Error")
+        print("Copernicus Error, Trying Again")
         print(e)
         error_num += 1
       
@@ -399,14 +501,36 @@ def get_copernicus(geometry, signal_timer =5):
             signal.alarm(0)
         still_working = False
 
-    return numpy.array(img.to_pil())
+    #bring everything together into an image and convert to a 3 channel np array
+    img = img.to_pil()
+    img=img.convert('RGB')
+    return numpy.array(img).reshape(img.size[0], img.size[1], 3)
 
 
 
 ##########Sentinel 1 #########################################################
 
 def pull_Sentinel1(geometry, date):
+    '''
     
+
+    Parameters
+    ----------
+    geometry : shapely.geometry, string
+        Geometry of the area for which we would like to pull an image.
+    date : date, string
+        Date for which we would like to pull imagery. Can be a date or string
+        defining the date.
+
+    Returns
+    -------
+    np.array
+        Returns a 3D numpy array in the shape of the image with one band of
+        sentinel 1 on each channel
+
+    '''
+    
+    #Testing for correct inputs
     try:
         if not isinstance(date, datetime):
             date = to_datetime(date)
@@ -423,14 +547,13 @@ def pull_Sentinel1(geometry, date):
         print("You did not enter a geometry for the geometry variable")
         return
     
-   #define area of interest by coordinates
+    #define area of interest by coordinates and construct a date range to look
+    #over
     aoi = ee.Geometry.Polygon(list(geometry.exterior.coords))
-   #print(aoi)
     start_date = date - timedelta(days = 80)
     end_date = date + timedelta(days = 1)
 
     try:
-      #print("calculating")
       # Sentinel-1 image filtered on date range and on aoi
         se2 = ee.ImageCollection('COPERNICUS/S1_GRD')\
           .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))\
@@ -452,13 +575,12 @@ def pull_Sentinel1(geometry, date):
 
         url = se2.select(rgb).clip(aoi).getThumbURL({'min': -50, 'max': 1, 'region': aoi, 'format': 'jpg'})
 
-        #now I open the url and download the image to the specified file location
-        #response = requests.get(url, stream=True).content        
+        #now I open the url and download the image to the specified file location      
         
         try:
             r = urllib.request.urlopen(url)
-            im = Image.open(r)
-            return numpy.array(im)
+            img = Image.open(r)
+            return numpy.array(img).reshape(img.size[0], img.size[1], 3)
         except Exception as e:
             print(e)
 
@@ -470,7 +592,26 @@ def pull_Sentinel1(geometry, date):
 
 #############Sentinel 2a ########################################################
 def pull_Sentinel2a(geometry, date):
+    '''
+    
 
+    Parameters
+    ----------
+    geometry : shapely.geometry, string
+        Geometry of the area for which we would like to pull an image.
+    date : date, string
+        Date for which we would like to pull imagery. Can be a date or string
+        defining the date.
+
+    Returns
+    -------
+    np.array
+        Returns a 3D numpy array in the shape of the image with bands
+        representing the geologic bands of sentinel 2 on each channel
+
+    '''
+    
+    #Testing for correct inputs
     try:
         if not isinstance(date, datetime):
             date = to_datetime(date)
@@ -487,14 +628,13 @@ def pull_Sentinel2a(geometry, date):
         print("You did not enter a geometry for the geometry variable")
         return
     
-
+    #define our area of interest by coordinates and construct a date range to
+    #look over
     aoi = ee.Geometry.Polygon(list(geometry.exterior.coords))
-    #print(aoi)
     start_date = date - timedelta(days = 80)
     end_date = date + timedelta(days = 1)
     
     try:
-        #print("calculating")
         # Sentinel-2 image filtered on date range and on aoi
         se2 = ee.ImageCollection('COPERNICUS/S2')\
             .filterDate(start_date, end_date)\
@@ -524,8 +664,8 @@ def pull_Sentinel2a(geometry, date):
     
         try:
             r = urllib.request.urlopen(url)
-            im = Image.open(r)
-            return numpy.array(im)
+            img = Image.open(r)
+            return numpy.array(img).reshape(img.size[0], img.size[1], 3)
         except Exception as e:
             print(e)
     
@@ -538,6 +678,26 @@ def pull_Sentinel2a(geometry, date):
 ##################Sentinel 2b################################
 
 def pull_Sentinel2b(geometry, date):
+    '''
+    
+
+    Parameters
+    ----------
+    geometry : shapely.geometry, string
+        Geometry of the area for which we would like to pull an image.
+    date : date, string
+        Date for which we would like to pull imagery. Can be a date or string
+        defining the date.
+
+    Returns
+    -------
+    np.array
+        Returns a 3D numpy array in the shape of the image with bands
+        representing the vegetation from sentinel 2 on each channel
+
+    '''
+    
+    #Testing for correct inputs
     
     try:
         if not isinstance(date, datetime):
@@ -555,14 +715,12 @@ def pull_Sentinel2b(geometry, date):
         print("You did not enter a geometry for the geometry variable")
         return
 
-    #define area of interest by coordinates
+    #define area of interest by coordinates and define a date range to look in
     aoi = ee.Geometry.Polygon(list(geometry.exterior.coords))
-    #print(aoi)
     start_date = date - timedelta(days = 80)
     end_date = date + timedelta(days = 1)
     
     try:
-        #print("calculating")
         # Sentinel-2 image filtered on date range and on aoi
         se2 = ee.ImageCollection('COPERNICUS/S2')\
             .filterDate(start_date, end_date)\
@@ -589,11 +747,12 @@ def pull_Sentinel2b(geometry, date):
         url = se2.select(rgb).clip(aoi).getThumbURL({'min': -100, 'max':5000, 'region': aoi, 'format': 'jpg'})
     
     
+        #pull in the image by url and save
     
         try:
             r = urllib.request.urlopen(url)
-            im = Image.open(r)
-            return numpy.array(im)
+            img = Image.open(r)
+            return numpy.array(img).reshape(img.size[0], img.size[1], 3)
         
         except Exception as e:
             print(e)
@@ -605,7 +764,29 @@ def pull_Sentinel2b(geometry, date):
     
 ############# GRIDMET Weather Data##########################################
 def pull_GRIDMET(geometry, date, num_days_back = 7):
-        
+    '''
+    
+
+    Parameters
+    ----------
+    geometry : shapely.geometry, string
+        Geometry of the area for which we would like to pull an image.
+    date : date, string
+        Date for which we would like to pull data. Can be a date or string
+        defining the date.
+    num_days_back : integer, optional
+        How many days worth of history to pull. The default is 7.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Returns a data frame with 7 columns, geometry, date, precipitation,
+        wind direction in degrees, minimum temperature, maximum temperature,
+        and wind velocity.
+
+    '''
+    
+    #testing for correct input types
     try:
         if not isinstance(date, datetime):
             date = to_datetime(date)
@@ -622,6 +803,7 @@ def pull_GRIDMET(geometry, date, num_days_back = 7):
         print("You did not enter a geometry for the geometry variable")
         return
     
+    #creating a data frame into which to copy our data.
     daterange = date_range(end = date, periods = num_days_back).tolist()
     geometries = [geometry for x in range(num_days_back)]
     
@@ -632,38 +814,29 @@ def pull_GRIDMET(geometry, date, num_days_back = 7):
                     "temp_min":["NULL"]*num_days_back, 
                     "temp_max":["NULL"]*num_days_back, 
                     "wind_vel":["NULL"]*num_days_back})
-    ##Main loop that iterates over areas and stores images in file
-    ##For test image of one AOI see below
+    ##Main loop that iterates over areas and data in the rows of the data frame
 
 
     for i in range(len(df)):
     #define area of interest by coordinates
         aoi = ee.Geometry.Polygon(list(df.geometry[i].exterior.coords))
-          #print(aoi)datetime.strptime(str(row[2]), '%Y%m%d%H%M%S')
         start_date = df.date[i] - timedelta(days=1)
         end_date = df.date[i]
-        #print(start_date)
-        #print(end_date)
+
 
         try:
-            #print("calculating")
-          
+            #Brining in the image collection from Google earth engine
             lst = ee.ImageCollection('IDAHO_EPSCOR/GRIDMET')\
                 .filterDate(start_date, end_date)\
                 .filterBounds(aoi)\
                 .select('pr', 'th', 'tmmn', 'tmmx', 'vs')
 
-
+            #Calculating 5 variables of interest
             precip = round(lst.mean().sample(aoi, 1000).first().get('pr').getInfo(),2)
-            #print("precip", precip)
             wind_dir = round(lst.mean().sample(aoi, 1000).first().get('th').getInfo(),2)
-            #print(wind_dir)
             temp_min = round(lst.mean().sample(aoi, 1000).first().get('tmmn').getInfo(),2)
-            #print(temp_min)
             temp_max = round(lst.mean().sample(aoi, 1000).first().get('tmmx').getInfo(),2)
-            #print(temp_max)
             wind_vel = round(lst.mean().sample(aoi, 1000).first().get('vs').getInfo(),2)
-            #print(wind_vel)
             
             
             df.iloc[i,2::] = [precip, wind_dir, temp_min, temp_max, wind_vel]
@@ -675,7 +848,28 @@ def pull_GRIDMET(geometry, date, num_days_back = 7):
     return df
         
 #################### Stitch Our dataframe back into an image ############
-def stitch_aso(reference, df):
+def stitch_aso(reference, df, date):
+    '''
+    
+
+    Parameters
+    ----------
+    reference : string
+        String path to a reference image of the target tiff
+    df : TYPE
+        A dataframe in the same structure and order as the one put out by
+        chop_aso().
+    date : string, date
+        A date to add to the image names.
+
+    Returns
+    -------
+    im_array : np.array
+        An array of the same size and shape as the original tiff but with the
+        values of the SWE column of the dataframe. Also saves a csv and a .jpeg
+        in the working directory
+
+    '''
     geo_tiff = GeoTiff(reference)
 
     zarr_array = geo_tiff.read()
@@ -691,17 +885,20 @@ def stitch_aso(reference, df):
     im_array[im_array == -9999] = np.nan
     im_array = im_array*0 +1
     
+    
+    
     y = 0
 
-    for i in range(0, im_array.shape[0], 20):
-        for j in range(0, im_array.shape[1], 20):
-            im_array[i:i+20, j:j+20] = im_array[i:i+20, j:j+20] * df.SWE[y]
+    for i in range(0, im_array.shape[1], 20):
+        for j in range(0, im_array.shape[0], 20):
+            im_array[j:j+20, i:i+20] = im_array[j:j+20, i:i+20] * df.SWE[y]
             y+=1
-    
-    im = Image.fromarray(im_array)
-    im = im.convert("L")
-    im.save(f"{reference[0:-4]}_prediction.jpeg")
-            
+
+
+    ax = sns.heatmap(im_array, vmin = 0, vmax = 100, cmap = "mako", yticklabels=False, xticklabels=False)
+    plt.savefig(f"{date}_{reference[0:-7]}_prediction.png")
+    np.savetxt(f"{date}_{reference[0:-7]}_prediction.csv", im_array, delimiter=",")
+           
     
     return im_array
 
@@ -710,13 +907,22 @@ def stitch_aso(reference, df):
 ############# testing###########
 
 def testing():
+    '''
+    
+
+    Returns
+    -------
+    None.
+        Runs a test of all the data pulling functions based on a geometry and date
+
+    '''
     
     polygon = Polygon([[-119.49, 38.22], [-119.59, 38.22], [-119.59, 38.32], [-119.49, 38.32], [-119.49, 38.22]])
     
     print("Testing Modis Image Pull")
     print(pull_MODIS_image(polygon, '2018-12-12', 'MOD10A1', buffer_percent=0.0))
     print("Testing Modis List Pull")
-    print(pull_MODIS_list(polygon, '2018-10-10', 'MOD10A1'))
+    print(pull_MODIS_list(polygon, '2020-10-10', 'MOD10A1'))
     print("Testing Copernicus Image Pull")
     print(get_copernicus(polygon))
     print("Testing Sentinel1 Image Pull")
