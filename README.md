@@ -6,14 +6,14 @@ This package was created to solve a specific task, but could easily prove useful
 
 # Installation
 
-There are many dependencies for this package, the most problematic of which is GDAL. Attempt to install the package first via: 
+There are many dependencies for this package, the most problematic of which is GDAL. Attempt to install the snowcast package first via: 
 
 ```
 pip install snowcast-Malachyiii
 from snowcast import data_wrangling
 ```
 
-If this does not work, the most likely solution is to first install the dependencies yourself.
+If this does not work, the most likely solution is to first install the dependencies (such as GDAL) yourself.
 
 Functions can be used by prepending the `data_wrangling.<function_name>` form
 
@@ -27,7 +27,7 @@ This package contains:
 
 ## chop_aso
 
-The intent of chop_aso is to take in a .tiff file, and cut it up into a dataframe of 1kmx1km geometries that can be fed into the later functions. It could easily be modified for any .tif file or target variable as long as you know two things:
+The intent of chop_aso is to take in a .tiff file, and cut it up into a dataframe of 1kmx1km geometries that can be fed into the later functions. It could easily be modified for any .tiff file, resolution or target variable as long as you know two things:
 
 1. The pixel resolution of the image
 2. The size of the target geometry
@@ -35,7 +35,7 @@ The intent of chop_aso is to take in a .tiff file, and cut it up into a datafram
 It is meant to work with tiffs that are lat/long, but could also be modified to take other projections.
 
 `chop_aso(tiff_image_name, groundtruth =  False):`
-    '''
+    
     
 
     Parameters
@@ -56,7 +56,7 @@ It is meant to work with tiffs that are lat/long, but could also be modified to 
         for that cell. Otherwise it is a 0 (to be filled in later)
         
     
-    '''
+    
 
 ## pull_MODIS_image
 
