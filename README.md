@@ -60,10 +60,10 @@ It is meant to work with tiffs that are lat/long, but could also be modified to 
 
 ## pull_MODIS_image
 
-Not used in our actual prediction module, but useful so we decided to keep it. This pulls the imagery for either of the two MODIS satellites (MOD10A1 and MYD10A1) and outputs the image from that satellite, cropped to the given geometry. If it cannot find an image from the specified day, it looks up to 7 days back
+Not used in our teams actual modeling, but useful so we decided to keep it. This function pulls the imagery for either of the two MODIS satellites (MOD10A1 and MYD10A1) and outputs the image from that satellite, cropped to the given geometry. If it cannot find an image from the specified day, it looks up to 7 days back
 
 `pull_MODIS_image(geometry, date, modis, buffer_percent = 0.0):`
-    '''
+    
     
     
     Parameters
@@ -84,13 +84,13 @@ Not used in our actual prediction module, but useful so we decided to keep it. T
     np.array
         Returns a 3D Numpy Array of all three bands scaled to be between 0 and 100.
 
-    '''
+    
 ## pull_MODIS_list
 
-This pulls the imagery for either of the two MODIS satellites (MOD10A1 and MYD10A1) and converts the data from that image, cropped to the given geometry, outputting the result as a table. If it cannot find an image from the specified day, it looks up to 7 days back
+This pulls the imagery for either of the two MODIS satellites (MOD10A1 and MYD10A1) and converts the data from that image, cropped to the given geometry, into tabular data. If it cannot find an image from the specified day, it looks up to 7 days back
 
 `pull_MODIS_list(geometry, date, modis, signal_timer = 5):`
-    '''
+    
     
     
     Parameters
@@ -112,14 +112,14 @@ This pulls the imagery for either of the two MODIS satellites (MOD10A1 and MYD10
         as three columns of data. One for The snow cover, one for the Albedo, and one
         for the unmodified NDSI measurment, all normalized to between 0 and 1
         
-    '''
+    
 
 ## get_copernicus
 
-This function pulls an image from the Copernicus 30m resolution DEM for the specified geometry. A date is not necessary because the DEM does not have date dependent image collections. The initial pull brings in the elevation, and the function datashader to create a slope and an aspect layer, outputing all three of these as a 3 channel numpy array
+This function pulls an image from the Copernicus 30m resolution DEM for the specified geometry. A date is not necessary because the DEM does not have date dependent image collections. The initial pull brings in the elevation, and datashader is used to create a slope and an aspect layer, outputting all three of these as a 3 channel numpy array
 
 `get_copernicus(geometry, signal_timer =5):`
-    '''
+    
     
 
     Parameters
@@ -135,13 +135,13 @@ This function pulls an image from the Copernicus 30m resolution DEM for the spec
         Given a geometry, pulls the Copernicus DEM 30m resolution image for that
         geometry. Returns a 3D Numpy Array of Elevation, slope and aspect.
 
-    '''
+    
 ## Sentinel Series
 
-The Sentinel functions are all roughly the same. The look on google earth engine for an image of the given geometry, on the specific satellite from the particular day, looking backwards in time if an image isn't available that day. The output is either all the bands (sentinel 1) or a subset of bands that are specifically useful for snow forecasting. In the case of Sentine2a thats geologic features, and in the case of Sentinel2b that's vegetation features. Any of these functions could be easily modified to pull in other bands as necessary.
+The Sentinel functions are all roughly the same. They look on google earth engine for an image of the given geometry, on the specific satellite from the particular day, looking backwards in time if an image isn't available on the day requested. The output is either all the bands (sentinel 1) or a subset of bands that are specifically useful for snow forecasting. In the case of Sentine2a that's geologic features, and in the case of Sentinel2b that's vegetation features. Any of these functions could be easily modified to pull in other bands as necessary.
  
 `pull_Sentinel1(geometry, date):`
-    '''
+    
     
 
     Parameters
@@ -158,10 +158,10 @@ The Sentinel functions are all roughly the same. The look on google earth engine
         Returns a 3D numpy array in the shape of the image with one band of
         sentinel 1 on each channel
 
-    '''
+    
  
 `pull_Sentinel2a(geometry, date):`
-    '''
+    
     
 
     Parameters
@@ -178,10 +178,10 @@ The Sentinel functions are all roughly the same. The look on google earth engine
         Returns a 3D numpy array in the shape of the image with bands
         representing the geologic bands of sentinel 2 on each channel
 
-    '''
+    
 
 `pull_Sentinel2b(geometry, date):`
-    '''
+    
     
 
     Parameters
@@ -198,14 +198,14 @@ The Sentinel functions are all roughly the same. The look on google earth engine
         Returns a 3D numpy array in the shape of the image with bands
         representing the vegetation from sentinel 2 on each channel
 
-    '''
+    
 
 ## pull_GRIDMET
 
-This function is intended to be used to create an LSTM style neural network. It pulls a data frame of the weather data from a specific geometry for given number of days before the supplied date. This function could easily be modified to pull in other weather data, as there are many variables available.
+This function is intended to be used to create an LSTM style neural network. It pulls a dataframe of the weather data from a specific geometry for given number of days before the supplied date. This function could easily be modified to pull in other weather data from GRIDMET, as there are many variables available.
 
 `def pull_GRIDMET(geometry, date, num_days_back = 7):`
-    '''
+    
     
 
     Parameters
@@ -225,14 +225,14 @@ This function is intended to be used to create an LSTM style neural network. It 
         wind direction in degrees, minimum temperature, maximum temperature,
         and wind velocity.
 
-    '''
+    
 ## stitch_aso
  
-This function takes the dataframe we have created, and stitches it back together into an image and a 1 channel numpy array of predictions. It is very important that the order of the dataframe not be changed, as it depends on math rather than geometries to work. All points not inside the shape in question should be coded as numpy nan's. Any changes made in chop_aso to account for resolution differences **must also be made here**
+This function takes the dataframe created by `chop_aso`, and stitches it back together into an image and a 1 channel numpy array of predictions. It is very important that the order of the dataframe not be changed, as it depends on math rather than geometries to work. A reference .tiff (which can be the same one used in `chop_aso`) must be provided to conform the image to the correct shape. All points not inside the shape in the reference .tiff should be coded as numpy nan's. Any changes made in `chop_aso` to account for resolution differences **must also be made here**
 
 
 `stitch_aso(reference, df, date):`
-    '''
+    
     
 
     Parameters
@@ -252,14 +252,14 @@ This function takes the dataframe we have created, and stitches it back together
         values of the SWE column of the dataframe. Also saves a csv and a .jpeg
         in the working directory
 
-    '''
+    
 
 ## testing
 
 Testing provides an all in one function to test your image pulls to ensure your google earth engine and planetary computer connections are working
 
 testing():
-    '''
+    
     
 
     Returns
@@ -267,8 +267,8 @@ testing():
     None.
         Runs a test of all the data pulling functions based on a geometry and date
 
-    '''
+    
     
 # Wrap-Up
 
-If you have any questions about this module, or wish to use it for your project, please email me at malachy.j.moran@gmail.com and cite this project in your paper's works cited.
+If you have any questions about this module, or wish to use it for your project, please email me at malachy.j.moran@gmail.com and/or cite this project in your paper's works cited.
