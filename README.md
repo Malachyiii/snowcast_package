@@ -27,7 +27,7 @@ This package contains:
 
 ## chop_aso
 
-The intent of chop_aso is to take in a .tiff file, and cut it up into a dataframe of 1kmx1km geometries that can be fed into the later functions. It could easily be modified for any .tiff file, resolution or target variable as long as you know two things:
+The intent of chop_aso is to take in a .tiff file, and cut it up into a dataframe of 1kmx1km geometries that can be fed into the later functions. Currently it is built to work with .tiff files from the [Airborne Snow Observatory](https://data.airbornesnowobservatories.com/), but could easily be modified for any .tiff file, resolution or target variable as long as you know two things:
 
 1. The pixel resolution of the image
 2. The size of the target geometry
@@ -41,7 +41,7 @@ It is meant to work with tiffs that are lat/long, but could also be modified to 
     Parameters
     ----------
     tiff_image_name : str
-        Path to the ASO Geotiff image.
+        Path to the Geotiff image.
     groundtruth : Boolean, optional
         True/False Do you want actual observed values. The default is False.
 
