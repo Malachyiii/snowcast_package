@@ -18,7 +18,7 @@ imagecodecs
 sklearn
 requests
 earthengine-api
-httplib2==0.15.0
+httplib2
 rioxarray
 seaborn
 

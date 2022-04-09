@@ -895,9 +895,9 @@ def stitch_aso(reference, df, date):
             y+=1
 
 
-    ax = sns.heatmap(im_array, vmin = 0, vmax = 100, cmap = "mako", yticklabels=False, xticklabels=False)
-    plt.savefig(f"{date}_{reference[0:-7]}_prediction.png")
-    np.savetxt(f"{date}_{reference[0:-7]}_prediction.csv", im_array, delimiter=",")
+    ax = sns.heatmap(im_array, vmin = 0, vmax = 100, cmap = "mako_r", yticklabels=False, xticklabels=False)
+    plt.savefig(f"{reference[0:-7]}_{date}_prediction.png")
+    np.savetxt(f"{reference[0:-7]}_{date}_prediction.csv", im_array, delimiter=",")
            
     
     return im_array
